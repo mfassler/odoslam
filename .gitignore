@@ -1,0 +1,8 @@
+
+
+# vim swapfiles:
+.*.swp
+
+__pycache__
+*.pyc
+
