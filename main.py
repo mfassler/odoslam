@@ -105,7 +105,7 @@ align = rs.align(rs.stream.color)
 
 
 vis = open3d.Visualizer()
-vis.create_window(width=800, height=600, left=1100, right=50)  # "right" is "top"
+vis.create_window(width=800, height=600, left=1100, top=50)
 
 pcd = open3d.PointCloud()
 prev_pcd = open3d.PointCloud()
