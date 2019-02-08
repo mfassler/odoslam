@@ -27,10 +27,12 @@ def rigid_transform_3D(A, B):
 
     # dot is matrix multiplication for array
     H = np.dot(AA.T, BB)
-
     U, S, Vt = np.linalg.svd(H)
-
     R = np.dot(Vt.T, U.T)
+
+    inv_H = np.dot(BB.T, AA)
+    invU, invS, invVt = np.linalg.svd(inv_H)
+    inv_R = np.dot(invVt.T, invU.T)
 
     # special reflection case
     if np.linalg.det(R) < 0:
@@ -38,9 +40,14 @@ def rigid_transform_3D(A, B):
        Vt[2,:] *= -1
        R = np.dot(Vt.T, U.T)
 
-    t = -np.dot(R, centroid_A.T) + centroid_B.T
+    if np.linalg.det(inv_R) < 0:
+       print("Reflection detected")
+       invVt[2,:] *= -1
+       inv_R = np.dot(invVt.T, invU.T)
+
+    t = centroid_B.T - np.dot(R, centroid_A.T)
 
     #print t
 
-    return R, t
+    return R, t, inv_R
 

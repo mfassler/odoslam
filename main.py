@@ -64,18 +64,14 @@ feature_params = {
 }
 
 
-track_len = 30
-#track_len = 130
+#track_len = 30
+track_len = 130
 detect_interval = 3
 frame_idx = 0;
 tracks = []
-new_tracks = []
 
-cloud_points = []
-cloud_colors = []
-new_cloud_points = []
-new_cloud_colors = []
-
+permanent_cloud_points = []  # np.zeros((1,3))
+haveInitialWorldMap = False
 
 notAddedYet = True
 prev_gray = None
@@ -103,47 +99,46 @@ h_minus_1 = rgb_intrinsics.height - 1
 align = rs.align(rs.stream.color)
 
 
+class Track(collections.deque):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.realWorldPointIdx = None  # index of real-world 3-D point
+        self.point_3d = None  # current 3-D point in camera coordinates
+
 
 vis = open3d.Visualizer()
+#vis.create_window(width=800, height=600, left=1100, right=50)
 vis.create_window(width=800, height=600, left=1100, top=50)
+vis2 = open3d.Visualizer()
+#vis2.create_window(width=800, height=600, left=1100, right=150)
+vis2.create_window(width=800, height=600, left=1100, top=150)
+
+perm_pcd = open3d.PointCloud()
+
 
 pcd = open3d.PointCloud()
 prev_pcd = open3d.PointCloud()
 
-
-points = np.empty(1)
-colors = np.empty(1)
-prev_points = np.empty(1)
-cur_points = np.empty(1)
-prev_colors = np.empty(1)
+cur_points = np.zeros((1,3))
 
 def update_point_cloud():
-    global points
-    global colors
-    global prev_points
     global cur_points
-    global prev_colors
 
-    numPts = 0
-    for p in cloud_points:
-        if len(p) > 1:
-            numPts += 1
+    prev_points = cur_points
+    prev_colors = np.tile( [0.5, 0, 0], (len(prev_points), 1))
 
-    prev_points = np.empty((numPts, 3))
+    numPts = len(tracks)
     cur_points = np.empty((numPts, 3))
-    prev_colors = np.empty((numPts, 3))
-    cur_colors = np.empty((numPts, 3))
-    for i, p in enumerate(cloud_points):
-        if len(p) > 1:
-            prev_points[i] = p[-2]
-            cur_points[i] = p[-1]
-            prev_colors[i] = 0.5, 0, 0
-            cur_colors[i] = 0, 0.5, 0
+    cur_colors = np.tile( [0, 0.5, 0], (numPts, 1))
+
+    for i, t in enumerate(tracks):
+        cur_points[i] = t.point_3d
 
     prev_pcd.points = open3d.Vector3dVector(prev_points)
     prev_pcd.colors = open3d.Vector3dVector(prev_colors)
     pcd.points = open3d.Vector3dVector(cur_points)
     pcd.colors = open3d.Vector3dVector(cur_colors)
+
 
 
 #position = np.array((0,0,0,1))
@@ -184,9 +179,6 @@ while True:
         p0r, _st, _err = cv.calcOpticalFlowPyrLK(frame_gray, prev_gray, p1, None, **lk_params)
 
         new_tracks = []
-        new_cloud_points = []
-        new_cloud_colors = []
-        #d = abs(p0-p0r).reshape(-1, 2).max(-1)
 
         for i, p in enumerate(p0):
             x = p1[i][0][0]
@@ -196,27 +188,100 @@ while True:
             d = cv.norm(p - p0r[i])  # TODO: perhaps this could be a single op in numpy?...
             z_depth = depth_scale * imD[yy, xx]
             if (d < 1.5) and (z_depth < 8.0) and (z_depth > 0.1):
-                tracks[i].append( (x, y ) )
-                new_tracks.append(tracks[i])
-                z_color = depth_to_color(z_depth);
-                color = imRGB[yy, xx] / 255
-                cloud_colors[i].append( (float(color[2]), float(color[1]), float(color[0])) )
-                #cloud_colors[i].append( (0.5, 0.5, 0.5) )
-                cv.circle(imRGB, (x, y), 3, z_color, -1)
-                new_cloud_colors.append(cloud_colors[i])
                 pt3d = rs.rs2_deproject_pixel_to_point(rgb_intrinsics, [x,y], z_depth)
+                tracks[i].append( (x, y) )
+                tracks[i].point_3d = np.array([pt3d[0], -pt3d[1], -pt3d[2]])
+                #color = imRGB[yy, xx] / 255
+                #tracks[-1].color = color
+                new_tracks.append(tracks[i])
 
-                #cloud_points[i].append(pt3d)
-                cloud_points[i].append( (pt3d[0], -pt3d[1], -pt3d[2]) )
-                new_cloud_points.append(cloud_points[i])
+                z_color = depth_to_color(z_depth);
+                cv.circle(imRGB, (x, y), 3, z_color, -1)
 
         tracks = new_tracks
-        cloud_colors = new_cloud_colors
-        cloud_points = new_cloud_points
 
+        # Draw the green lines showing the tracks:
         cv.polylines(imRGB, [np.int32(tr) for tr in tracks], False, (0, 255, 0))
-        #for i, track in enumerate(tracks):
-        #    cv.polylines(imRGB, np.int32(track), False, (0, 255, 0))
+
+
+        if haveInitialWorldMap:
+            # Find the tracks that are connected to permanent (real-world) 3D points
+            activePermPoints = 0
+            for t in tracks:
+                if t.realWorldPointIdx is not None:
+                    activePermPoints += 1
+
+
+            ###########
+            # BEGIN:  find the transform from world coordinates to current camera coordinates
+            ###########
+            world_points = np.empty((activePermPoints, 3))
+            current_points = np.empty((activePermPoints, 3))
+
+            i = 0
+            for t in tracks:
+                if t.realWorldPointIdx is not None:
+                    world_points[i] = permanent_cloud_points[t.realWorldPointIdx]
+                    current_points[i] = t.point_3d
+                    i += 1
+
+            R, tt, inv_R = rigid_transform_3D(world_points, current_points)
+            print(tt)
+            #inv_R = np.linalg.inv(R)
+            #xfrm = np.identity(4)
+            #xfrm[:3, :3] = R
+            #xfrm[:3, 3] = tt
+            #inv_xfrm = np.linalg.inv(xfrm)
+            ###########
+            # END:  find the transform from world coordinates to current camera coordinates
+            ###########
+
+
+            ########################################
+            # All tracks that are connected to permanent (real-world) 3D points
+            #  will be transformed back into real-world coordinates.  New points will
+            #  be added to the world as-is, existing points will be averaged in 
+            #  (running average)
+            
+            for i, t in enumerate(tracks):
+                if t.realWorldPointIdx is not None:
+                    # convert t.point_3d to world coordinates:
+                    #  w3d = convert(R, t, t.point_3d)
+                    #w3d = np.dot(xfrm, t.point_3d)
+                    w3d = np.dot(inv_R, t.point_3d - tt)
+                    # Running avg:
+                    permanent_cloud_points[t.realWorldPointIdx] *= 0.99
+                    permanent_cloud_points[t.realWorldPointIdx] += 0.01 * w3d
+                # Find any new, stable tracks:
+                if t.realWorldPointIdx is None and len(t) > 20:  # seems stable, so add it to the permanent point cloud
+                    t.realWorldPointIdx = len(permanent_cloud_points)
+                    #  w3d = convert(R, t, t.point_3d)
+                    #w3d = np.dot(xfrm, t.point_3d)
+                    w3d = np.dot(inv_R, t.point_3d - tt)
+                    permanent_cloud_points.append(w3d)
+            
+
+    if not haveInitialWorldMap:
+        if len(tracks) > 50:
+            doIt = True
+            for t in tracks[:35]:
+                if len(t) < 30:
+                    doIt = False
+                    break
+            if doIt:
+                print("ready to make initial map")
+                for t in tracks:
+                    if len(t) > 20:  # seems to be stable, so add it to the world map
+                        t.realWorldPointIdx = len(permanent_cloud_points)
+                        permanent_cloud_points.append(t.point_3d)
+
+                perm_pcd.points = open3d.Vector3dVector(permanent_cloud_points)
+                pcp_colors = np.tile([0, 0.5, 0], (len(permanent_cloud_points), 1))
+                perm_pcd.colors = open3d.Vector3dVector(pcp_colors)
+                vis2.add_geometry(perm_pcd)
+
+                haveInitialWorldMap = True
+
 
     # Every once-in-while, we'll try to add new points to the list of
     # points that we're tracking:
@@ -236,14 +301,12 @@ while True:
                 yy = max(0, min(int(round(y)), h_minus_1))
                 z_depth = depth_scale * imD[yy, xx]
                 if z_depth < 8.0 and z_depth > 0.1:
-                    tracks.append(collections.deque(maxlen=track_len))
-                    cloud_points.append(collections.deque(maxlen=track_len))
-                    cloud_colors.append(collections.deque(maxlen=track_len))
+                    tracks.append(Track(maxlen=track_len))
                     tracks[-1].append( (x, y) )
-                    color = imRGB[yy, xx]
-                    cloud_colors[-1].append( (color[2], color[1], color[0]) )
                     pt3d = rs.rs2_deproject_pixel_to_point(rgb_intrinsics, [x,y], z_depth)
-                    cloud_points[-1].append( (pt3d[0], -pt3d[1], -pt3d[2]) )
+                    tracks[-1].point_3d = np.array([pt3d[0], -pt3d[1], -pt3d[2]])
+                    #color = imRGB[yy, xx]
+                    #tracks[-1].color = color
 
     frame_idx += 1
     prev_gray = frame_gray
@@ -259,9 +322,15 @@ while True:
     vis.poll_events()
     vis.update_renderer()
 
-    #reg_p2p = open3d.registration_icp(prev_pcd, pcd, 0.02, np.identity(4), open3d.TransformationEstimationPointToPoint())
-    #position = np.dot(reg_p2p.transformation, position)
+    perm_pcd.points = open3d.Vector3dVector(permanent_cloud_points)
+    pcp_colors = np.tile([0, 0.5, 0], (len(permanent_cloud_points), 1))
+    perm_pcd.colors = open3d.Vector3dVector(pcp_colors)
+    vis2.update_geometry()
+    vis2.poll_events()
+    vis2.update_renderer()
 
+
+    '''
     if len(prev_points) > 10:
         R, tt = rigid_transform_3D(prev_points, cur_points)
         position = np.dot(R, position) + tt
@@ -269,7 +338,8 @@ while True:
         direction = np.dot(R, direction)
         #print(direction, position, "%.02f" % (distance))
         #print(R, tt)
-        print(position[:3], "%.02f" % (distance))
+        print(position[:3], direction, "%.02f" % (distance), len(permanent_cloud_points))
+    '''
 
     cv.imshow('lk_track', imRGB)
     cv.moveWindow('lk_track', 20, 20)
