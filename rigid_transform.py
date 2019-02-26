@@ -16,7 +16,7 @@ def rigid_transform_3D(A, B):
 
     centroid_A = np.mean(A, axis=0)
     centroid_B = np.mean(B, axis=0)
-    
+
     # center the points 
     #AA = A - np.tile(centroid_A, (N, 1))
     #BB = B - np.tile(centroid_B, (N, 1))
@@ -36,14 +36,14 @@ def rigid_transform_3D(A, B):
 
     # special reflection case
     if np.linalg.det(R) < 0:
-       print("Reflection detected")
-       Vt[2,:] *= -1
-       R = np.dot(Vt.T, U.T)
+        print("Reflection detected")
+        Vt[2,:] *= -1
+        R = np.dot(Vt.T, U.T)
 
     if np.linalg.det(inv_R) < 0:
-       print("Reflection detected")
-       invVt[2,:] *= -1
-       inv_R = np.dot(invVt.T, invU.T)
+        print("Reflection detected")
+        invVt[2,:] *= -1
+        inv_R = np.dot(invVt.T, invU.T)
 
     t = centroid_B.T - np.dot(R, centroid_A.T)
 

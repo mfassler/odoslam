@@ -25,6 +25,7 @@ import open3d
 
 from rigid_transform import rigid_transform_3D
 
+#np.seterr(all='raise')
 np.set_printoptions(precision=3)
 np.set_printoptions(suppress=True)
 
@@ -107,11 +108,11 @@ class Track(collections.deque):
 
 
 vis = open3d.Visualizer()
-#vis.create_window(width=800, height=600, left=1100, right=50)
-vis.create_window(width=800, height=600, left=1100, top=50)
+#vis.create_window(width=800, height=600, left=1100, right=50)  # Open3D 0.4.0
+vis.create_window(width=800, height=600, left=1100, top=50)  # Open3D 0.5.0
 vis2 = open3d.Visualizer()
-#vis2.create_window(width=800, height=600, left=1100, right=150)
-vis2.create_window(width=800, height=600, left=1100, top=150)
+#vis2.create_window(width=800, height=600, left=1100, right=150)  # Open3D 0.4.0
+vis2.create_window(width=800, height=600, left=1100, top=150)  # Open3D 0.5.0
 
 perm_pcd = open3d.PointCloud()
 
@@ -215,23 +216,21 @@ while True:
             ###########
             # BEGIN:  find the transform from world coordinates to current camera coordinates
             ###########
-            world_points = np.empty((activePermPoints, 3))
-            current_points = np.empty((activePermPoints, 3))
+            if activePermPoints > 5:
+                world_points = np.empty((activePermPoints, 3))
+                current_points = np.empty((activePermPoints, 3))
 
-            i = 0
-            for t in tracks:
-                if t.realWorldPointIdx is not None:
-                    world_points[i] = permanent_cloud_points[t.realWorldPointIdx]
-                    current_points[i] = t.point_3d
-                    i += 1
+                i = 0
+                for t in tracks:
+                    if t.realWorldPointIdx is not None:
+                        world_points[i] = permanent_cloud_points[t.realWorldPointIdx]
+                        current_points[i] = t.point_3d
+                        i += 1
 
-            R, tt, inv_R = rigid_transform_3D(world_points, current_points)
-            print(tt)
-            #inv_R = np.linalg.inv(R)
-            #xfrm = np.identity(4)
-            #xfrm[:3, :3] = R
-            #xfrm[:3, 3] = tt
-            #inv_xfrm = np.linalg.inv(xfrm)
+                R, tt, inv_R = rigid_transform_3D(world_points, current_points)
+                print(tt)
+            else:
+                print(' * Lost tracking.')
             ###########
             # END:  find the transform from world coordinates to current camera coordinates
             ###########
@@ -245,19 +244,17 @@ while True:
             
             for i, t in enumerate(tracks):
                 if t.realWorldPointIdx is not None:
-                    # convert t.point_3d to world coordinates:
-                    #  w3d = convert(R, t, t.point_3d)
-                    #w3d = np.dot(xfrm, t.point_3d)
+                    # Convert t.point_3d to world coordinates:
                     w3d = np.dot(inv_R, t.point_3d - tt)
                     # Running avg:
                     permanent_cloud_points[t.realWorldPointIdx] *= 0.99
                     permanent_cloud_points[t.realWorldPointIdx] += 0.01 * w3d
                 # Find any new, stable tracks:
                 if t.realWorldPointIdx is None and len(t) > 20:  # seems stable, so add it to the permanent point cloud
-                    t.realWorldPointIdx = len(permanent_cloud_points)
-                    #  w3d = convert(R, t, t.point_3d)
-                    #w3d = np.dot(xfrm, t.point_3d)
+                    # Convert t.point_3d to world coordinates:
                     w3d = np.dot(inv_R, t.point_3d - tt)
+                    # Attach to permanent_cloud_points:
+                    t.realWorldPointIdx = len(permanent_cloud_points)
                     permanent_cloud_points.append(w3d)
             
 
