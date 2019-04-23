@@ -107,18 +107,16 @@ class Track(collections.deque):
         self.point_3d = None  # current 3-D point in camera coordinates
 
 
-vis = open3d.Visualizer()
-#vis.create_window(width=800, height=600, left=1100, right=50)  # Open3D 0.4.0
-vis.create_window(width=800, height=600, left=1100, top=50)  # Open3D 0.5.0
-vis2 = open3d.Visualizer()
-#vis2.create_window(width=800, height=600, left=1100, right=150)  # Open3D 0.4.0
-vis2.create_window(width=800, height=600, left=1100, top=150)  # Open3D 0.5.0
+vis = open3d.visualization.Visualizer()
+vis.create_window(width=800, height=600, left=1100, top=50)
+vis2 = open3d.visualization.Visualizer()
+vis2.create_window(width=800, height=600, left=1100, top=150)
 
-perm_pcd = open3d.PointCloud()
+perm_pcd = open3d.geometry.PointCloud()
 
 
-pcd = open3d.PointCloud()
-prev_pcd = open3d.PointCloud()
+pcd = open3d.geometry.PointCloud()
+prev_pcd = open3d.geometry.PointCloud()
 
 cur_points = np.zeros((1,3))
 
@@ -135,10 +133,10 @@ def update_point_cloud():
     for i, t in enumerate(tracks):
         cur_points[i] = t.point_3d
 
-    prev_pcd.points = open3d.Vector3dVector(prev_points)
-    prev_pcd.colors = open3d.Vector3dVector(prev_colors)
-    pcd.points = open3d.Vector3dVector(cur_points)
-    pcd.colors = open3d.Vector3dVector(cur_colors)
+    prev_pcd.points = open3d.utility.Vector3dVector(prev_points)
+    prev_pcd.colors = open3d.utility.Vector3dVector(prev_colors)
+    pcd.points = open3d.utility.Vector3dVector(cur_points)
+    pcd.colors = open3d.utility.Vector3dVector(cur_colors)
 
 
 
@@ -272,9 +270,9 @@ while True:
                         t.realWorldPointIdx = len(permanent_cloud_points)
                         permanent_cloud_points.append(t.point_3d)
 
-                perm_pcd.points = open3d.Vector3dVector(permanent_cloud_points)
+                perm_pcd.points = open3d.utility.Vector3dVector(permanent_cloud_points)
                 pcp_colors = np.tile([0, 0.5, 0], (len(permanent_cloud_points), 1))
-                perm_pcd.colors = open3d.Vector3dVector(pcp_colors)
+                perm_pcd.colors = open3d.utility.Vector3dVector(pcp_colors)
                 vis2.add_geometry(perm_pcd)
 
                 haveInitialWorldMap = True
@@ -319,9 +317,9 @@ while True:
     vis.poll_events()
     vis.update_renderer()
 
-    perm_pcd.points = open3d.Vector3dVector(permanent_cloud_points)
+    perm_pcd.points = open3d.utility.Vector3dVector(permanent_cloud_points)
     pcp_colors = np.tile([0, 0.5, 0], (len(permanent_cloud_points), 1))
-    perm_pcd.colors = open3d.Vector3dVector(pcp_colors)
+    perm_pcd.colors = open3d.utility.Vector3dVector(pcp_colors)
     vis2.update_geometry()
     vis2.poll_events()
     vis2.update_renderer()
