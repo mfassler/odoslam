@@ -81,6 +81,9 @@ prev_gray = None
 pipeline = rs.pipeline()
 config = rs.config()
 
+if len(sys.argv) > 1:
+    config.enable_device(sys.argv[1])
+
 config.enable_stream(rs.stream.depth, 848, 480, rs.format.z16, 30)
 config.enable_stream(rs.stream.color, 848, 480, rs.format.bgr8, 30)
 #config.enable_device_from_file(sys.argv[1], repeat_playback=False)
@@ -313,14 +316,15 @@ while True:
         vis.add_geometry(prev_pcd)
         notAddedYet = False
 
-    vis.update_geometry()
+    vis.update_geometry(pcd)
+    vis.update_geometry(prev_pcd)
     vis.poll_events()
     vis.update_renderer()
 
     perm_pcd.points = open3d.utility.Vector3dVector(permanent_cloud_points)
     pcp_colors = np.tile([0, 0.5, 0], (len(permanent_cloud_points), 1))
     perm_pcd.colors = open3d.utility.Vector3dVector(pcp_colors)
-    vis2.update_geometry()
+    vis2.update_geometry(perm_pcd)
     vis2.poll_events()
     vis2.update_renderer()
 
