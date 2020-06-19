@@ -72,6 +72,7 @@ frame_idx = 0;
 tracks = []
 
 permanent_cloud_points = []  # np.zeros((1,3))
+permanent_cloud_colors = []  # np.zeros((1,3))
 haveInitialWorldMap = False
 
 notAddedYet = True
@@ -108,6 +109,7 @@ class Track(collections.deque):
         super().__init__(*args, **kwargs)
         self.realWorldPointIdx = None  # index of real-world 3-D point
         self.point_3d = None  # current 3-D point in camera coordinates
+        self.color = None # real color of the 3-D point
 
 
 vis = open3d.visualization.Visualizer()
@@ -168,6 +170,32 @@ while True:
     if prev_gray is None:
         prev_gray = frame_gray.copy()
 
+    # Every once-in-while, we'll try to add new points to the list of
+    # points that we're tracking:
+    if frame_idx % detect_interval == 0:
+
+        # we won't bother detecting near points that we're already tracking:
+        mask = np.zeros_like(frame_gray)
+        mask[:] = 255
+        for track in tracks:
+            xy = track[-1]
+            cv.circle(mask, xy, 5, 0, -1)
+
+        pNew = cv.goodFeaturesToTrack(frame_gray, mask=mask, **feature_params)
+        if pNew is not None:
+            for x, y in np.float32(pNew).reshape(-1, 2):
+                xx = max(0, min(int(round(x)), w_minus_1))
+                yy = max(0, min(int(round(y)), h_minus_1))
+                z_depth = depth_scale * imD[yy, xx]
+                if z_depth < 8.0 and z_depth > 0.1:
+                    tracks.append(Track(maxlen=track_len))
+                    tracks[-1].append( (x, y) )
+                    pt3d = rs.rs2_deproject_pixel_to_point(rgb_intrinsics, [x,y], z_depth)
+                    tracks[-1].point_3d = np.array([pt3d[0], -pt3d[1], -pt3d[2]])
+                    color = imRGB[yy, xx] / 255
+                    tracks[-1].color = color
+
+
     if len(tracks):
         # The p0 vector is just the last point in each of the tracks items
         p0 = np.empty((len(tracks), 1, 2), np.float32)
@@ -193,8 +221,9 @@ while True:
                 pt3d = rs.rs2_deproject_pixel_to_point(rgb_intrinsics, [x,y], z_depth)
                 tracks[i].append( (x, y) )
                 tracks[i].point_3d = np.array([pt3d[0], -pt3d[1], -pt3d[2]])
-                #color = imRGB[yy, xx] / 255
-                #tracks[-1].color = color
+                color = imRGB[yy, xx] / 255
+                tracks[-1].color *= 0.99
+                tracks[-1].color += 0.01 * color
                 new_tracks.append(tracks[i])
 
                 z_color = depth_to_color(z_depth);
@@ -257,7 +286,7 @@ while True:
                     # Attach to permanent_cloud_points:
                     t.realWorldPointIdx = len(permanent_cloud_points)
                     permanent_cloud_points.append(w3d)
-            
+                    permanent_cloud_colors.append(t.color)
 
     if not haveInitialWorldMap:
         if len(tracks) > 50:
@@ -272,39 +301,15 @@ while True:
                     if len(t) > 20:  # seems to be stable, so add it to the world map
                         t.realWorldPointIdx = len(permanent_cloud_points)
                         permanent_cloud_points.append(t.point_3d)
+                        permanent_cloud_colors.append((0, 0.5, 0))
 
                 perm_pcd.points = open3d.utility.Vector3dVector(permanent_cloud_points)
-                pcp_colors = np.tile([0, 0.5, 0], (len(permanent_cloud_points), 1))
-                perm_pcd.colors = open3d.utility.Vector3dVector(pcp_colors)
+                perm_pcd.colors = open3d.utility.Vector3dVector(permanent_cloud_colors)
                 vis2.add_geometry(perm_pcd)
 
                 haveInitialWorldMap = True
 
 
-    # Every once-in-while, we'll try to add new points to the list of
-    # points that we're tracking:
-    if frame_idx % detect_interval == 0:
-
-        # we won't bother detecting near points that we're already tracking:
-        mask = np.zeros_like(frame_gray)
-        mask[:] = 255
-        for track in tracks:
-            xy = track[-1]
-            cv.circle(mask, xy, 5, 0, -1)
-
-        pNew = cv.goodFeaturesToTrack(frame_gray, mask=mask, **feature_params)
-        if pNew is not None:
-            for x, y in np.float32(pNew).reshape(-1, 2):
-                xx = max(0, min(int(round(x)), w_minus_1))
-                yy = max(0, min(int(round(y)), h_minus_1))
-                z_depth = depth_scale * imD[yy, xx]
-                if z_depth < 8.0 and z_depth > 0.1:
-                    tracks.append(Track(maxlen=track_len))
-                    tracks[-1].append( (x, y) )
-                    pt3d = rs.rs2_deproject_pixel_to_point(rgb_intrinsics, [x,y], z_depth)
-                    tracks[-1].point_3d = np.array([pt3d[0], -pt3d[1], -pt3d[2]])
-                    #color = imRGB[yy, xx]
-                    #tracks[-1].color = color
 
     frame_idx += 1
     prev_gray = frame_gray
@@ -322,8 +327,8 @@ while True:
     vis.update_renderer()
 
     perm_pcd.points = open3d.utility.Vector3dVector(permanent_cloud_points)
-    pcp_colors = np.tile([0, 0.5, 0], (len(permanent_cloud_points), 1))
-    perm_pcd.colors = open3d.utility.Vector3dVector(pcp_colors)
+    perm_pcd.colors = open3d.utility.Vector3dVector(permanent_cloud_colors)
+
     vis2.update_geometry(perm_pcd)
     vis2.poll_events()
     vis2.update_renderer()
