@@ -17,6 +17,7 @@ if sys.version_info[0] < 3:
 
 import time
 import collections
+import socket
 import numpy as np
 import matplotlib.pyplot as plt
 import cv2 as cv
@@ -28,6 +29,12 @@ from rigid_transform import rigid_transform_3D
 #np.seterr(all='raise')
 np.set_printoptions(precision=3)
 np.set_printoptions(suppress=True)
+
+
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sock.bind(('0.0.0.0', 0))
+
+
 
 
 colormap =  np.int32(plt.cm.jet(np.linspace(0,1,256)) * 255)
@@ -87,6 +94,9 @@ if len(sys.argv) > 1:
 
 config.enable_stream(rs.stream.depth, 848, 480, rs.format.z16, 30)
 config.enable_stream(rs.stream.color, 848, 480, rs.format.bgr8, 30)
+#config.enable_stream(rs.stream.accel)
+#config.enable_stream(rs.stream.gyro)
+
 #config.enable_device_from_file(sys.argv[1], repeat_playback=False)
 
 profile = pipeline.start(config)
@@ -155,6 +165,12 @@ while True:
     aligned_frames = align.process(frames)
     depth_frame = aligned_frames.get_depth_frame()
     color_frame = aligned_frames.get_color_frame()
+
+    ## This only works because of how we enabled the streams:
+    ##  (ie, accel was the 3rd stream enabled...)
+    #accel = frames[2].as_motion_frame().get_motion_data()
+    #gyro = frames[3].as_motion_frame().get_motion_data()
+
 
     if not depth_frame or not color_frame:
         print("missing frame(s)")
@@ -258,6 +274,7 @@ while True:
                         i += 1
 
                 R, tt, inv_R = rigid_transform_3D(world_points, current_points)
+                sock.sendto(inv_R.tobytes(), ('127.0.0.1', 12311))
                 print(tt)
             else:
                 print(' * Lost tracking.')
